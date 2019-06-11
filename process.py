@@ -1,6 +1,6 @@
 import os
 from zipfile import ZipFile
-from xml_parser import parse_v1_5
+from xml_parser import parse
 
 def process(base_path: str) -> None:
     count = 0
@@ -15,12 +15,11 @@ def process(base_path: str) -> None:
                             print(count)
                         xml = fzip.read(zipName)
                         try:
-                            parse_v1_5(xml)
+                            parse(xml)
                         except Exception as e:
                             print(zipName, e)
     print(count)
-    # Total: 4305
 
 if __name__ == '__main__':
-    path = 'C:/EPRTBJV2019000007001001'
+    path = 'C:/EPRTBJV1978000051001001'
     process(path)
