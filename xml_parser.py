@@ -1,9 +1,5 @@
 # parser version 1.0.0 2019/06/11
-
-import json
-
 from lxml import etree
-
 
 '''
 lxml helper
@@ -291,9 +287,239 @@ def resolve_kind(elem: etree.Element) -> dict:
     '''
     return elem.text
 
+def resolve_cdoc(elem: etree.Element) -> list:
+    '''
+    <cdoc>: divisional application data
+    '''
+    cdoc = list()
+    children_group = get_children_group(elem, {
+        'g': ['dnum', 'date']
+    })
+    for g in children_group['g']:
+        tmp = {}
+        if 'dnum' in g:
+            tmp['dnum'] = resolve_dnum(g['dnum'])
+        if 'date' in g:
+            tmp['date'] = resolve_date(g['date'])
+        cdoc.append(tmp)
+    return cdoc
+
+def resolve_pdoc(elem: etree.Element) -> list:
+    '''
+    <pdoc>: parent application data
+    '''
+    pdoc = list()
+    children_group = get_children_group(elem, {
+        'g': ['dnum', 'date']
+    })
+    for g in children_group['g']:
+        tmp = {}
+        if 'dnum' in g:
+            tmp['dnum'] = resolve_dnum(g['dnum'])
+        if 'date' in g:
+            tmp['date'] = resolve_date(g['date'])
+        pdoc.append(tmp)
+    return pdoc
+
+def resolve_parent(elem: etree.Element) -> dict:
+    '''
+    <parent>: Parent relation
+    '''
+    parent = dict()
+    children = get_children(elem, ['cdoc', 'pdoc'])
+    if 'cdoc' in children:
+        parent['cdoc'] = []
+        if isinstance(children['cdoc'], list):
+            for cdoc in children['cdoc']:
+                parent['cdoc'].append(resolve_cdoc(cdoc))
+        else:
+            parent['cdoc'].append(resolve_cdoc(children['cdoc']))
+    if 'pdoc' in children:
+        parent['pdoc'] = []
+        if isinstance(children['pdoc'], list):
+            for pdoc in children['pdoc']:
+                parent['pdoc'].append(resolve_pdoc(pdoc))
+        else:
+            parent['pdoc'].append(resolve_pdoc(children['pdoc']))
+    return parent
+
 '''
 resolve_list
 '''
+def resolve_ep_reference_list(elem: etree.Element) -> dict:
+    ep_reference_list = dict()
+    ep_reference_list['attr'] = get_attr(elem)
+    content = []
+    for child in elem:
+        # Comment
+        if callable(child.tag):
+            continue
+        content.append({
+            'type': child.tag,
+            'attr': get_attr(child),
+            'content': get_inner_content(child)
+        })
+    ep_reference_list['content'] = content
+    return ep_reference_list
+
+def resolve_doc_page(elem: etree.Element) -> dict:
+    return {
+        'attr': get_attr(elem)
+    }
+
+def resolve_search_report_data(elem: etree.Element) -> dict:
+    search_report_data = dict()
+    search_report_data['attr'] = get_attr(elem)
+    children = get_children(elem, ['doc-page', 'srep-info', 'srep-for-pub'])
+    if 'doc-page' in children:
+        search_report_data['doc-page'] = []
+        if isinstance(children['doc-page'], list):
+            for doc_page in children['doc-page']:
+                search_report_data['doc-page'].append(resolve_doc_page(doc_page))
+        else:
+            search_report_data['doc-page'].append(resolve_doc_page(children['doc-page']))
+    else:
+        search_report_data['raw'] = get_inner_content(elem)
+    return search_report_data
+
+def resolve_img(elem: etree) -> dict:
+    return {
+        'attr': get_attr(elem)
+    }
+
+def resolve_figure(elem: etree) -> dict:
+    figure = dict()
+    figure['attr'] = get_attr(elem)
+    children = get_children(elem, ['img'])
+    figure['img'] = resolve_img(children['img'])
+    return figure
+
+def resolve_drawings(elem: etree.Element) -> dict:
+    drawings = dict()
+    drawings['attr'] = get_attr(elem)
+    children = get_children(elem, ['figure'])
+    drawings['figure'] = []
+    if isinstance(children['figure'], list):
+        for figure in children['figure']:
+            drawings['figure'].append(resolve_figure(figure))
+    else:
+        drawings['figure'].append(resolve_figure(children['figure']))
+    return drawings
+
+def resolve_claim_text(elem: etree.Element) -> str:
+    return get_inner_content(elem)
+
+def resolve_claims_statement(elem: etree.Element) -> dict:
+    claims_statement = dict()
+    content = []
+    for child in elem:
+        # Comment
+        if callable(child.tag):
+            continue
+        if child.tag in ['heading', 'p']:
+            content.append({
+                'type': child.tag,
+                'attr': get_attr(child),
+                'content': get_inner_content(child)
+            })
+        else:
+            raise Exception('claims statement Warning:', child.tag, 'not resolve.')
+    claims_statement['content'] = content
+    return claims_statement
+
+def resolve_amended_claims_statement(elem: etree.Element) -> dict:
+    amended_claims_statement = dict()
+    amended_claims_statement['attr'] = get_attr(elem)
+    children = get_children(elem, ['claims-statement'])
+    amended_claims_statement['claims-statement'] = []
+    if isinstance(children['claims-statement'], list):
+        for claims_statement in children['claims-statement']:
+            amended_claims_statement['claims-statement'].append(resolve_claims_statement(claims_statement))
+    else:
+        amended_claims_statement['claims-statement'].append(resolve_claims_statement(children['claims-statement']))
+    return amended_claims_statement
+
+def resolve_amended_claims(elem: etree.Element) -> dict:
+    amended_claims = dict()
+    amended_claims['attr'] = get_attr(elem)
+    children = get_children(elem, ['heading', 'claim', 'amended-claims-statement'])
+    if 'heading' in children:
+        amended_claims['heading'] = resolve_heading(children['heading'])
+    amended_claims['claim'] = []
+    if isinstance(children['claim'], list):
+        for claim in children['claim']:
+            amended_claims['claim'].append(resolve_claim(claim))
+    else:
+        amended_claims['claim'].append(resolve_claim(children['claim']))
+    if 'amended-claims-statement' in children:
+        amended_claims['amended-claims-statement'] = []
+        if isinstance(children['amended-claims-statement'], list):
+            for amended_claims_statement in children['amended-claims-statement']:
+                amended_claims['amended-claims-statement'].append(resolve_amended_claims_statement(amended_claims_statement))
+        else:
+            amended_claims['amended-claims-statement'].append(resolve_amended_claims_statement(children['amended-claims-statement']))
+    return amended_claims
+
+def resolve_claim(elem: etree.Element) -> dict:
+    claim = dict()
+    claim['attr'] = get_attr(elem)
+    children = get_children(elem, ['claim-text'])
+    claim['claim_text'] = []
+    if isinstance(children['claim-text'], list):
+        for claim_text in children['claim-text']:
+            claim['claim_text'].append(resolve_claim_text(claim_text))
+    else:
+        claim['claim_text'].append(resolve_claim_text(children['claim-text']))
+    return claim
+
+def resolve_claims(elem: etree.Element) -> dict:
+    claims = dict()
+    claims['attr'] = get_attr(elem)
+    children = get_children(elem, ['claim'])
+    claims['claim'] = []
+    if isinstance(children['claim'], list):
+        for claim in children['claim']:
+            claims['claim'].append(resolve_claim(claim))
+    else:
+        claims['claim'].append(resolve_claim(children['claim']))
+    return claims
+
+def resolve_description(elem: etree.Element) -> dict:
+    description = dict()
+    description['attr'] = get_attr(elem)
+    content = []
+    for child in elem:
+        # Comment
+        if callable(child.tag):
+            continue
+        if child.tag in ['heading', 'p']:
+            content.append({
+                'type': child.tag,
+                'attr': get_attr(child),
+                'content': get_inner_content(child)
+            })
+        else:
+            raise Exception('desc Warning:', child.tag, 'not resolve.')
+    
+    description['content'] = content
+    return description
+
+def resolve_abstract(elem: etree.Element) -> dict:
+    abstract = dict()
+    abstract['attr'] = get_attr(elem)
+    content = []
+    for child in elem:
+        # Comment
+        if callable(child.tag):
+            continue
+        content.append({
+            'type': child.tag,
+            'attr': get_attr(child),
+            'content': get_inner_content(child)
+        })
+    abstract['content'] = content
+    return abstract
+
 def resolve_B880(elem: etree.Element) -> dict:
     '''
     <B880>: Publication of the deferred search report
@@ -507,6 +733,15 @@ def resolve_B788(elem: etree.Element) -> dict:
     B788['date'] = resolve_date(children['date'])
     return B788
 
+def resolve_B787(elem: etree.Element) -> dict:
+    '''
+    <B787>: Date of rejection of the opposition procedure
+    '''
+    B787 = dict()
+    children = get_children(elem, ['date'])
+    B787['date'] = resolve_date(children['date'])
+    return B787
+
 def resolve_B784(elem: etree.Element) -> dict:
     '''
     <B784>: Attorney/agent of the opponent
@@ -537,7 +772,7 @@ def resolve_B780(elem: etree.Element) -> dict:
     <B780>: Opposition(s)
     '''
     B780 = dict()
-    children = get_children(elem, ['B781', 'B788'])
+    children = get_children(elem, ['B781', 'B787', 'B788'])
     if 'B781' in children:
         B780['B781'] = []
         if isinstance(children['B781'], list):
@@ -545,6 +780,8 @@ def resolve_B780(elem: etree.Element) -> dict:
                 B780['B781'].append(resolve_B781(B781))
         else:
             B780['B781'].append(resolve_B781(children['B781']))
+    if 'B787' in children:
+        B780['B787'] = resolve_B787(children['B787'])
     if 'B788' in children:
         B780['B788'] = resolve_B788(children['B788'])
     return B780
@@ -620,62 +857,6 @@ def resolve_B700(elem: etree.Element) -> dict:
     if 'B790' in children:
         B700['B790'] = resolve_B790(children['B790'])
     return B700
-
-def resolve_cdoc(elem: etree.Element) -> list:
-    '''
-    <cdoc>: divisional application data
-    '''
-    cdoc = list()
-    children_group = get_children_group(elem, {
-        'g': ['dnum', 'date']
-    })
-    for g in children_group['g']:
-        tmp = {}
-        if 'dnum' in g:
-            tmp['dnum'] = resolve_dnum(g['dnum'])
-        if 'date' in g:
-            tmp['date'] = resolve_date(g['date'])
-        cdoc.append(tmp)
-    return cdoc
-
-def resolve_pdoc(elem: etree.Element) -> list:
-    '''
-    <pdoc>: parent application data
-    '''
-    pdoc = list()
-    children_group = get_children_group(elem, {
-        'g': ['dnum', 'date']
-    })
-    for g in children_group['g']:
-        tmp = {}
-        if 'dnum' in g:
-            tmp['dnum'] = resolve_dnum(g['dnum'])
-        if 'date' in g:
-            tmp['date'] = resolve_date(g['date'])
-        pdoc.append(tmp)
-    return pdoc
-
-def resolve_parent(elem: etree.Element) -> dict:
-    '''
-    <parent>: Parent relation
-    '''
-    parent = dict()
-    children = get_children(elem, ['cdoc', 'pdoc'])
-    if 'cdoc' in children:
-        parent['cdoc'] = []
-        if isinstance(children['cdoc'], list):
-            for cdoc in children['cdoc']:
-                parent['cdoc'].append(resolve_cdoc(cdoc))
-        else:
-            parent['cdoc'].append(resolve_cdoc(children['cdoc']))
-    if 'pdoc' in children:
-        parent['pdoc'] = []
-        if isinstance(children['pdoc'], list):
-            for pdoc in children['pdoc']:
-                parent['pdoc'].append(resolve_pdoc(pdoc))
-        else:
-            parent['pdoc'].append(resolve_pdoc(children['pdoc']))
-    return parent
 
 def resolve_B620EP(elem: etree.Element) -> dict:
     '''
@@ -840,27 +1021,15 @@ def resolve_B510EP(elem: etree.Element) -> list:
         B510EP.append(resolve_classification_ipcr(children['classification-ipcr']))
     return B510EP
 
+def resolve_B517EP(elem: etree.Element) -> str:
+    '''
+    <B517EP>: Non-obligatory suppl. class. - no longer used in IPCR - but for changes to any old files it may be present
+    '''
+    return elem.text
+
 def resolve_B516(elem: etree.Element) -> str:
     '''
     <B516>: Will contain "version" edition statement indicator 8 or, for earlier files 7, etc
-    '''
-    return elem.text
-
-def resolve_B511(elem: etree.Element) -> str:
-    '''
-    <B511>: First information
-    '''
-    return elem.text
-
-def resolve_B512(elem: etree.Element) -> str:
-    '''
-    <B512>: Inventive classification would be B511 & B512
-    '''
-    return elem.text
-
-def resolve_B513(elem: etree.Element) -> str:
-    '''
-    <B513>: Non inventive classification
     '''
     return elem.text
 
@@ -870,12 +1039,23 @@ def resolve_B514(elem: etree.Element) -> str:
     '''
     return elem.text
 
-def resolve_B517EP(elem: etree.Element) -> str:
+def resolve_B513(elem: etree.Element) -> str:
     '''
-    <B517EP>: Non-obligatory suppl. class. - no longer used in IPCR - but for changes to any old files it may be present
+    <B513>: Non inventive classification
     '''
     return elem.text
 
+def resolve_B512(elem: etree.Element) -> str:
+    '''
+    <B512>: Inventive classification would be B511 & B512
+    '''
+    return elem.text
+
+def resolve_B511(elem: etree.Element) -> str:
+    '''
+    <B511>: First information
+    '''
+    return elem.text
 
 def resolve_B510(elem: etree.Element) -> dict:
     B510 = dict()
@@ -1099,27 +1279,33 @@ def resolve_B310(elem: etree.Element) -> str:
     '''
     return elem.text
 
-def resolve_B300(elem: etree.Element) -> dict:
+def resolve_B300(elem: etree.Element) -> list:
     '''
     <B300>:
         (<B310>, <B320>, <B330>)*: Priority data
     '''
-    B300 = dict()
+    B300 = list()
     children_group = get_children_group(elem, {
-        'priority': ['B310', 'B320', 'B330']
+        'g': ['B310', 'B320', 'B330']
     })
-    if 'priority' in children_group:
-        B300['priority'] = []
-        for item in children_group['priority']:
-            tmp = {}
-            if 'B310' in item:
-                tmp['B310'] = resolve_B310(item['B310'])
-            if 'B320' in item:
-                tmp['B320'] = resolve_B320(item['B320'])
-            if 'B330' in item:
-                tmp['B330'] = resolve_B330(item['B330'])
-            B300['priority'].append(tmp)
+    for g in children_group['g']:
+        B300.append({
+            'B310': resolve_B310(g['B310']),
+            'B320': resolve_B320(g['B320']),
+            'B330': resolve_B330(g['B330'])
+        })
     return B300
+
+def resolve_B270(elem: etree.Element) -> dict:
+    '''
+    <B270>: Previously filed application
+    '''
+    B270 = dict()
+    children = get_children(elem, ['dnum', 'date', 'ctry'])
+    B270['dnum'] = resolve_dnum(children['dnum'])
+    B270['date'] = resolve_date(children['date'])
+    B270['ctry'] = resolve_ctry(children['ctry'])
+    return B270
 
 def resolve_B260(elem: etree.Element) -> str:
     '''
@@ -1265,17 +1451,6 @@ def resolve_B210(elem: etree.Element) -> str:
     [root]<B210>: Application number
     '''
     return elem.text
-
-def resolve_B270(elem: etree.Element) -> dict:
-    '''
-    <B270>: Previously filed application
-    '''
-    B270 = dict()
-    children = get_children(elem, ['dnum', 'date', 'ctry'])
-    B270['dnum'] = resolve_dnum(children['dnum'])
-    B270['date'] = resolve_date(children['date'])
-    B270['ctry'] = resolve_ctry(children['ctry'])
-    return B270
 
 def resolve_B200(elem: etree.Element) -> dict:
     '''
@@ -1455,142 +1630,6 @@ def resolve_B100(elem: etree.Element) -> dict:
     B100['B190'] = resolve_B190(children['B190'])
     return B100
 
-def resolve_B001EP(elem: etree.Element) -> str:
-    '''
-    <B001EP>: Selective mask for states involved
-    '''
-    return elem.text
-
-def resolve_B003EP(elem: etree.Element) -> str:
-    '''
-    <B003EP>: Indicator 'no A-document published by EPO'
-    '''
-    return elem.text
-
-def resolve_B004EP(elem: etree.Element) -> str:
-    '''
-    <B004EP>: Re-establishment of rights indicator
-    '''
-    return elem.text
-
-def resolve_B005EP(elem: etree.Element) -> str:
-    '''
-    [useless]<B005EP>: Printer/Producer identification
-    '''
-    return elem.text
-
-def resolve_B007EP(elem: etree.Element) -> str:
-    '''
-    [useless]<B007EP>: Reserved for EPO internal use
-    '''
-    return elem.text
-
-def resolve_B008EP(elem: etree.Element) -> str:
-    '''
-    <B008EP>: Indicator for "small changes" === 8
-    '''
-    return elem.text
-
-def resolve_B009EP(elem: etree.Element) -> dict:
-    '''
-    <B009EP>: Text from B725EP tag in the three EPO official languages
-    Note: The text language order is German, English and French.
-    '''
-    B009EP = dict()
-    children = get_children(elem, ['text'])
-    B009EP['text'] = []
-    if isinstance(children['text'], list):
-        for text in children['text']:
-            B009EP['text'].append(resolve_text(text))
-    else:
-        B009EP['text'].append(resolve_text(children['text']))
-    return B009EP
-
-def resolve_B011EP(elem: etree.Element) -> dict:
-    '''
-    <B011EP>: Serial number date and states
-    '''
-    B011EP = dict()
-    children = get_children(elem, ['date', 'dnum', 'ctry'])
-    B011EP['date'] = resolve_date(children['date'])
-    B011EP['dnum'] = resolve_dnum(children['dnum'])
-    if 'ctry' in children:
-        B011EP['ctry'] = []
-        if isinstance(children['ctry'], list):
-            for ctry in children['ctry']:
-                B011EP['ctry'] = resolve_ctry(ctry)
-        else:
-            B011EP['ctry'] = resolve_ctry(children['ctry'])
-    return B011EP
-
-def resolve_B010EP(elem: etree.Element) -> dict:
-    '''
-    <B010EP>: Other rights and legal means of execution
-    '''
-    B010EP = dict()
-    children = get_children(elem, ['B011EP'])
-    B010EP['B011EP'] = []
-    if isinstance(children['B011EP'], list):
-        for B011EP in children['B011EP']:
-            B010EP['B011EP'].append(resolve_B011EP(B011EP))
-    else:
-        B010EP['B011EP'].append(resolve_B011EP(children['B011EP']))
-    return B010EP
-
-def resolve_B015EP(elem: etree.Element) -> str:
-    '''
-    <B015EP>: Number of copies to be printed
-    '''
-    return elem.text
-
-def resolve_B053EP(elem: etree.Element) -> dict:
-    '''
-    <B053EP>: Additional remarks
-    '''
-    return elem.text
-
-def resolve_B051EP(elem: etree.Element) -> str:
-    '''
-    <B051EP>: Language
-    '''
-    return elem.text
-
-def resolve_B052EP(elem: etree.Element) -> str:
-    '''
-    <B052EP>: Free Text
-    '''
-    return elem.text
-
-def resolve_B050EP(elem: etree.Element) -> list:
-    '''
-    <B050EP>: Free text
-    '''
-    B050EP = list()
-    children_group = get_children_group(elem, {
-        'text': ['B051EP', 'B052EP']
-    })
-    for text in children_group['text']:
-        B050EP.append({
-            'B051EP': resolve_B051EP(text['B051EP']),
-            'B052EP': resolve_B052EP(text['B052EP'])
-        })
-    return B050EP
-
-def resolve_B070EP(elem: etree.Element) -> str:
-    '''
-    <B070EP>: B publication technical field (subsequently filed technical information)
-    '''
-    return elem.text
-
-def resolve_B078EP(elem: etree.Element) -> dict:
-    '''
-    <B078EP>: Date of 'No opposition filed
-    '''
-    B078EP = dict()
-    children = get_children(elem, ['date'])
-    B078EP['date'] = resolve_date(children['date'])
-    return B078EP
-
 def resolve_B0933EP(elem: etree.Element) -> dict:
     '''
     <B0933EP>: Full payment received on
@@ -1688,7 +1727,7 @@ def resolve_B0900EP(elem: etree.Element) -> dict:
         for B091EP in children['B091EP']:
             B0900EP['B091EP'].append(resolve_B091EP(B091EP))
     else:
-        B0900EP['B091EP'].append(children['B091EP'])
+        B0900EP['B091EP'].append(resolve_B091EP(children['B091EP']))
     if 'B093EP' in children:
         B0900EP['B093EP'] = resolve_B093EP(children['B093EP'])
     return B0900EP
@@ -1706,6 +1745,211 @@ def resolve_B090EP(elem: etree.Element) -> dict:
     else:
         B090EP['B0900EP'].append(resolve_B0900EP(children['B0900EP']))
     return B090EP
+
+def resolve_B078EP(elem: etree.Element) -> dict:
+    '''
+    <B078EP>: Date of 'No opposition filed
+    '''
+    B078EP = dict()
+    children = get_children(elem, ['date'])
+    B078EP['date'] = resolve_date(children['date'])
+    return B078EP
+
+def resolve_B0756EP(elem: etree.Element) -> str:
+    '''
+    <B0756EP>: Kind of decision : R01 to R12
+    '''
+    return elem.text
+
+def resolve_B0755EP(elem: etree.Element) -> dict:
+    '''
+    <B0755EP>: Date of decision
+    '''
+    B0753EP = dict()
+    children = get_children(elem, ['date'])
+    B0753EP['date'] = resolve_date(children['date'])
+    return B0753EP
+
+def resolve_B0753EP(elem: etree.Element) -> dict:
+    '''
+    <B0753EP>: Date of notice of petition (May be included at a later date)
+    '''
+    B0753EP = dict()
+    children = get_children(elem, ['date'])
+    B0753EP['date'] = resolve_date(children['date'])
+    return B0753EP
+
+def resolve_B0752EP(elem: etree.Element) -> str:
+    '''
+    <B0752EP>: Petitioner code
+    '''
+    return elem.text
+
+def resolve_B0751EP(elem: etree.Element) -> str:
+    '''
+    <B0751EP>: Appeal number
+    '''
+    return elem.text
+
+def resolve_B0750EP(elem: etree.Element) -> dict:
+    '''
+    Petition for review number (As we can have multiple petitions for review). Comprises a unique number for a given year, e.g. R0001/08
+    '''
+    B0750EP = dict()
+    B0750EP['attr'] = get_attr(elem)
+    children = get_children(elem, ['B0751EP', 'B0752EP', 'B0753EP', 'B0755EP', 'B0756EP'])
+    if 'B0751EP' in children:
+        B0750EP['B0751EP'] = resolve_B0751EP(children['B0751EP'])
+    if 'B0752EP' in children:
+        B0750EP['B0752EP'] = resolve_B0752EP(children['B0752EP'])
+    if 'B0753EP' in children:
+        B0750EP['B0753EP'] = resolve_B0753EP(children['B0753EP'])
+    if 'B0755EP' in children:
+        B0750EP['B0755EP'] = resolve_B0755EP(children['B0755EP'])
+    if 'B0756EP' in children:
+        B0750EP['B0756EP'] = resolve_B0756EP(children['B0756EP'])
+    return B0750EP
+
+def resolve_B075EP(elem: etree.Element) -> dict:
+    '''
+    <B075EP>: Petition for review
+    '''
+    B075EP = dict()
+    children = get_children(elem, ['B0750EP'])
+    B075EP['B0750EP'] = []
+    if isinstance(children['B0750EP'], list):
+        for B0750EP in children['B0750EP']:
+            B075EP['B0750EP'].append(resolve_B0750EP(B0750EP))
+    else:
+        B075EP['B0750EP'].append(resolve_B0750EP(children['B0750EP']))
+    return B075EP
+
+def resolve_B070EP(elem: etree.Element) -> str:
+    '''
+    <B070EP>: B publication technical field (subsequently filed technical information)
+    '''
+    return elem.text
+
+def resolve_B053EP(elem: etree.Element) -> dict:
+    '''
+    <B053EP>: Additional remarks
+    '''
+    return elem.text
+
+def resolve_B051EP(elem: etree.Element) -> str:
+    '''
+    <B051EP>: Language
+    '''
+    return elem.text
+
+def resolve_B052EP(elem: etree.Element) -> str:
+    '''
+    <B052EP>: Free Text
+    '''
+    return elem.text
+
+def resolve_B050EP(elem: etree.Element) -> list:
+    '''
+    <B050EP>: Free text
+    '''
+    B050EP = list()
+    children_group = get_children_group(elem, {
+        'text': ['B051EP', 'B052EP']
+    })
+    for text in children_group['text']:
+        B050EP.append({
+            'B051EP': resolve_B051EP(text['B051EP']),
+            'B052EP': resolve_B052EP(text['B052EP'])
+        })
+    return B050EP
+
+def resolve_B015EP(elem: etree.Element) -> str:
+    '''
+    <B015EP>: Number of copies to be printed
+    '''
+    return elem.text
+
+def resolve_B011EP(elem: etree.Element) -> dict:
+    '''
+    <B011EP>: Serial number date and states
+    '''
+    B011EP = dict()
+    children = get_children(elem, ['date', 'dnum', 'ctry'])
+    B011EP['date'] = resolve_date(children['date'])
+    B011EP['dnum'] = resolve_dnum(children['dnum'])
+    if 'ctry' in children:
+        B011EP['ctry'] = []
+        if isinstance(children['ctry'], list):
+            for ctry in children['ctry']:
+                B011EP['ctry'] = resolve_ctry(ctry)
+        else:
+            B011EP['ctry'] = resolve_ctry(children['ctry'])
+    return B011EP
+
+def resolve_B010EP(elem: etree.Element) -> dict:
+    '''
+    <B010EP>: Other rights and legal means of execution
+    '''
+    B010EP = dict()
+    children = get_children(elem, ['B011EP'])
+    B010EP['B011EP'] = []
+    if isinstance(children['B011EP'], list):
+        for B011EP in children['B011EP']:
+            B010EP['B011EP'].append(resolve_B011EP(B011EP))
+    else:
+        B010EP['B011EP'].append(resolve_B011EP(children['B011EP']))
+    return B010EP
+
+def resolve_B009EP(elem: etree.Element) -> dict:
+    '''
+    <B009EP>: Text from B725EP tag in the three EPO official languages
+    Note: The text language order is German, English and French.
+    '''
+    B009EP = dict()
+    children = get_children(elem, ['text'])
+    B009EP['text'] = []
+    if isinstance(children['text'], list):
+        for text in children['text']:
+            B009EP['text'].append(resolve_text(text))
+    else:
+        B009EP['text'].append(resolve_text(children['text']))
+    return B009EP
+
+def resolve_B008EP(elem: etree.Element) -> str:
+    '''
+    <B008EP>: Indicator for "small changes" === 8
+    '''
+    return elem.text
+
+def resolve_B007EP(elem: etree.Element) -> str:
+    '''
+    [useless]<B007EP>: Reserved for EPO internal use
+    '''
+    return elem.text
+
+def resolve_B005EP(elem: etree.Element) -> str:
+    '''
+    [useless]<B005EP>: Printer/Producer identification
+    '''
+    return elem.text
+
+def resolve_B004EP(elem: etree.Element) -> str:
+    '''
+    <B004EP>: Re-establishment of rights indicator
+    '''
+    return elem.text
+
+def resolve_B003EP(elem: etree.Element) -> str:
+    '''
+    <B003EP>: Indicator 'no A-document published by EPO'
+    '''
+    return elem.text
+
+def resolve_B001EP(elem: etree.Element) -> str:
+    '''
+    <B001EP>: Selective mask for states involved
+    '''
+    return elem.text
 
 def resolve_eptags(elem: etree.Element) -> dict:
     '''
@@ -1725,6 +1969,7 @@ def resolve_eptags(elem: etree.Element) -> dict:
         'B050EP',
         'B053EP',
         'B070EP',
+        'B075EP',
         'B078EP',
         'B090EP'])
     if 'B001EP' in children:
@@ -1756,6 +2001,8 @@ def resolve_eptags(elem: etree.Element) -> dict:
             eptags['B053EP'].append(resolve_B053EP(children['B053EP']))
     if 'B070EP' in children:
         eptags['B070EP'] = resolve_B070EP(children['B070EP'])
+    if 'B075EP' in children:
+        eptags['B075EP'] = resolve_B075EP(children['B075EP'])
     if 'B078EP' in children:
         eptags['B078EP'] = resolve_B078EP(children['B078EP'])
     if 'B090EP' in children:
@@ -1798,185 +2045,13 @@ def resolve_SDOBI(elem: etree.Element) -> dict:
         SDOBI['B800'] = resolve_B800(children['B800'])
     return SDOBI
 
-def resolve_abstract(elem: etree.Element) -> dict:
-    abstract = dict()
-    abstract['attr'] = get_attr(elem)
-    content = []
-    for child in elem:
-        # Comment
-        if callable(child.tag):
-            continue
-        content.append({
-            'type': child.tag,
-            'attr': get_attr(child),
-            'content': get_inner_content(child)
-        })
-    abstract['content'] = content
-    return abstract
-
-def resolve_description(elem: etree.Element) -> dict:
-    description = dict()
-    description['attr'] = get_attr(elem)
-    content = []
-    for child in elem:
-        # Comment
-        if callable(child.tag):
-            continue
-        if child.tag in ['heading', 'p']:
-            content.append({
-                'type': child.tag,
-                'attr': get_attr(child),
-                'content': get_inner_content(child)
-            })
-        else:
-            raise Exception('desc Warning:', child.tag, 'not resolve.')
-    
-    description['content'] = content
-    return description
-
-def resolve_claim_text(elem: etree.Element) -> str:
-    return get_inner_content(elem)
-
-def resolve_claim(elem: etree.Element) -> dict:
-    claim = dict()
-    claim['attr'] = get_attr(elem)
-    children = get_children(elem, ['claim-text'])
-    claim['claim_text'] = []
-    if isinstance(children['claim-text'], list):
-        for claim_text in children['claim-text']:
-            claim['claim_text'].append(resolve_claim_text(claim_text))
-    else:
-        claim['claim_text'].append(resolve_claim_text(children['claim-text']))
-    return claim
-
-def resolve_claims(elem: etree.Element) -> dict:
-    claims = dict()
-    claims['attr'] = get_attr(elem)
-    children = get_children(elem, ['claim'])
-    claims['claim'] = []
-    if isinstance(children['claim'], list):
-        for claim in children['claim']:
-            claims['claim'].append(resolve_claim(claim))
-    else:
-        claims['claim'].append(resolve_claim(children['claim']))
-    return claims
-
-def resolve_claims_statement(elem: etree.Element) -> dict:
-    claims_statement = dict()
-    content = []
-    for child in elem:
-        # Comment
-        if callable(child.tag):
-            continue
-        if child.tag in ['heading', 'p']:
-            content.append({
-                'type': child.tag,
-                'attr': get_attr(child),
-                'content': get_inner_content(child)
-            })
-        else:
-            raise Exception('claims statement Warning:', child.tag, 'not resolve.')
-    claims_statement['content'] = content
-    return claims_statement
-
-def resolve_amended_claims_statement(elem: etree.Element) -> dict:
-    amended_claims_statement = dict()
-    amended_claims_statement['attr'] = get_attr(elem)
-    children = get_children(elem, ['claims-statement'])
-    amended_claims_statement['claims-statement'] = []
-    if isinstance(children['claims-statement'], list):
-        for claims_statement in children['claims-statement']:
-            amended_claims_statement['claims-statement'].append(resolve_claims_statement(claims_statement))
-    else:
-        amended_claims_statement['claims-statement'].append(resolve_claims_statement(children['claims-statement']))
-    return amended_claims_statement
-
-def resolve_amended_claims(elem: etree.Element) -> dict:
-    amended_claims = dict()
-    amended_claims['attr'] = get_attr(elem)
-    children = get_children(elem, ['heading', 'claim', 'amended-claims-statement'])
-    if 'heading' in children:
-        amended_claims['heading'] = resolve_heading(children['heading'])
-    amended_claims['claim'] = []
-    if isinstance(children['claim'], list):
-        for claim in children['claim']:
-            amended_claims['claim'].append(resolve_claim(claim))
-    else:
-        amended_claims['claim'].append(resolve_claim(children['claim']))
-    if 'amended-claims-statement' in children:
-        amended_claims['amended-claims-statement'] = []
-        if isinstance(children['amended-claims-statement'], list):
-            for amended_claims_statement in children['amended-claims-statement']:
-                amended_claims['amended-claims-statement'].append(resolve_amended_claims_statement(amended_claims_statement))
-        else:
-            amended_claims['amended-claims-statement'].append(resolve_amended_claims_statement(children['amended-claims-statement']))
-    return amended_claims
-
-def resolve_img(elem: etree) -> dict:
-    return {
-        'attr': get_attr(elem)
-    }
-
-def resolve_figure(elem: etree) -> dict:
-    figure = dict()
-    figure['attr'] = get_attr(elem)
-    children = get_children(elem, ['img'])
-    figure['img'] = resolve_img(children['img'])
-    return figure
-
-def resolve_drawings(elem: etree.Element) -> dict:
-    drawings = dict()
-    drawings['attr'] = get_attr(elem)
-    children = get_children(elem, ['figure'])
-    drawings['figure'] = []
-    if isinstance(children['figure'], list):
-        for figure in children['figure']:
-            drawings['figure'].append(resolve_figure(figure))
-    else:
-        drawings['figure'].append(resolve_figure(children['figure']))
-    return drawings
-
-def resolve_doc_page(elem: etree.Element) -> dict:
-    return {
-        'attr': get_attr(elem)
-    }
-
-def resolve_search_report_data(elem: etree.Element) -> dict:
-    search_report_data = dict()
-    search_report_data['attr'] = get_attr(elem)
-    children = get_children(elem, ['doc-page', 'srep-info', 'srep-for-pub'])
-    if 'doc-page' in children:
-        search_report_data['doc-page'] = []
-        if isinstance(children['doc-page'], list):
-            for doc_page in children['doc-page']:
-                search_report_data['doc-page'].append(resolve_doc_page(doc_page))
-        else:
-            search_report_data['doc-page'].append(resolve_doc_page(children['doc-page']))
-    else:
-        search_report_data['raw'] = get_inner_content(elem)
-    return search_report_data
-
-def resolve_ep_reference_list(elem: etree.Element) -> dict:
-    ep_reference_list = dict()
-    ep_reference_list['attr'] = get_attr(elem)
-    content = []
-    for child in elem:
-        # Comment
-        if callable(child.tag):
-            continue
-        content.append({
-            'type': child.tag,
-            'attr': get_attr(child),
-            'content': get_inner_content(child)
-        })
-    ep_reference_list['content'] = content
-    return ep_reference_list
-
 '''
 main
 '''
 def parse(xml: bytes) -> dict:
-    patent = dict()
+    patent = {
+        'version': '1.0.0'
+    }
     root = etree.XML(xml)
     patent['attr'] = get_attr(root)
     children = get_children(root, [
@@ -1985,6 +2060,7 @@ def parse(xml: bytes) -> dict:
         'description',
         'claims',
         'amended-claims',
+        'amended-claims-statement',
         'drawings',
         'search-report-data',
         'ep-reference-list'
@@ -2013,6 +2089,13 @@ def parse(xml: bytes) -> dict:
                 patent['amended-claims'].append(resolve_amended_claims(amended_claims))
         else:
             patent['amended-claims'].append(resolve_amended_claims(children['amended-claims']))
+    if 'amended-claims-statement' in children:
+        patent['amended-claims-statement'] = []
+        if isinstance(children['amended-claims-statement'], list):
+            for amended_claims_statement in children['amended-claims-statement']:
+                patent['amended-claims-statement'].append(resolve_amended_claims_statement(amended_claims_statement))
+        else:
+            patent['amended-claims-statement'].append(resolve_amended_claims_statement(children['amended-claims-statement']))
     if 'drawings' in children:
         patent['drawings'] = resolve_drawings(children['drawings'])
     if 'search-report-data' in children:
@@ -2026,386 +2109,13 @@ def parse(xml: bytes) -> dict:
         patent['ep-reference-list'] = resolve_ep_reference_list(children['ep-reference-list'])
     return patent
 
-def generate_md(patent: str) -> str:
-    def trans_date(field: dict) -> str:
-        text = str(field['date'])
-        return '%s.%s.%s' % (text[6:], text[4:6], text[:4])
-
-    def trans_4xx(field: dict) -> str:
-        text = str(field['bnum'])
-        return '%s %s %s/%s' % (trans_date(field), labels['bulletin'][lang], text[:4], text[4:])
-    
-    def trans_ipc(field: str) -> str:
-        field = field.split()
-        return '%s %s %s %s' % (field[0][1:], field[1][:2], field[1][2:], field[2])
-
-    def trans_ipcr(field: dict) -> str:
-        text = field['text'].split()
-        return '%s %s <sup>(%s.%s)</sup>' % (text[0], text[1], text[2][:4], text[2][4:6])
-
-    def trans_name(field: dict, out_str: bool) -> str:
-        if 'B725EP' in field:
-            return '<br>'.join(field['B725EP']['text'])
-        adr = field['adr']
-        if 'sfx' in field:
-            sfx = field['sfx']
-        else:
-            sfx = ''
-        snm = field['snm'] + sfx
-        if len(adr) == 0:
-            return snm
-        if out_str:
-            return '%s<br>%s<br>%s (%s)' % (snm, adr['str'], adr['city'], adr['ctry'])
-        else:
-            return '%s<br>%s (%s)' % (snm, adr['city'], adr['ctry'])
-
-    def trans_international_an(field: dict) -> str:
-        anum = field['B861']['dnum']['anum']
-        return 'PCT/%s/%s' % (anum[:6], anum[6:])
-
-    def trans_international_pn(field: dict) -> str:
-        B871 = field['B871']
-        pnum = B871['dnum']['pnum']
-        bnum = str(B871['bnum'])
-        return '%s %s/%s (%s Gazette %s/%s)' % (pnum[:2], pnum[2:6], pnum[6:], trans_date(B871), bnum[:4], bnum[4:])
-    
-    def trans_doc(field: dict) -> str:
-        dnum = field['dnum']
-        anum = dnum['anum']
-        if 'pnum' in dnum:
-            pnum = dnum['pnum']
-            return '%s / %s' % (anum, format(int(pnum), ',').replace(',', ' '))
-        else:
-            return anum
-
-    md = []
-
-    labels = {
-        15: {
-            'en': [
-                'Correction information',
-                'Corrected version no',
-                'Corrections, see'
-            ],
-            'fr': [
-                'Information de correction',
-                'Version corrigée no',
-                'Corrections, voir'
-            ]
-        },
-        21: {
-            'de': 'Anmeldenummer',
-            'en': 'Application number'
-        },
-        22: {
-            'de': 'Anmeldetag',
-            'en': 'Date of filing'
-        },
-        30: {
-            'de': 'Priorität',
-            'en': 'Priority'
-        },
-        43: {
-            'de': {
-                'A1': 'Veröffentlichungstag der Anmeldung',
-                'A3': 'Veröffentlichungstag A2',
-                'B1': 'Veröffentlichungstag der Anmeldung'
-            },
-            'en': {
-                'A1': 'Date of publication of application',
-                'A3': 'Date of publication A2',
-                'A8': 'Date of publication',
-                'A9': 'Date of publication',
-                'B1': 'Date of publication of application',
-                'B2': 'Date of publication of application',
-                'B3': 'Date of publication of application'
-            }
-        },
-        45: {
-            'de': {
-                'B1': 'Veröffentlichungstag und Bekanntmachung des Hinweises auf die Patenterteilung'
-            },
-            'en': {
-                'B1': 'Date of publication and mention of the grant of the patent',
-                'B2': {
-                    45: 'Mention of the grant of the patent',
-                    47: 'Date of publication and mention of the opposition decision:'
-                }
-            },
-            'fr': {
-                'B2': {
-                    45: 'Mention de la délivrance du brevet',
-                    47: 'Date de publication et mention de la décision concernant l’opposition'
-                }
-            }
-        },
-        48: {
-            'en': 'Corrigendum issued on',
-            'fr': 'Corrigendum publié le'
-        },
-        51: {
-            'de': 'Int Cl.',
-            'en': 'Int Cl.'
-        },
-        56: {
-            'de': 'Entgegenhaltungen',
-            'en': 'References cited'
-        },
-        60: {
-            'de': 'Teilanmeldung',
-            'en': 'Divisional application'
-        },
-        71: {
-            'de': 'Anmelder'
-        },
-        72: {
-            'de': 'Erfinder',
-            'en': 'Inventor'
-        },
-        73: {
-            'de': 'Patentinhaber',
-            'en': 'Proprietor'
-        },
-        74: {
-            'de': 'Vertreter',
-            'en': 'Representative'
-        },
-        84: {
-            'de': [
-                'Benannte Vertragsstaaten',
-                'Benannte Erstreckungsstaaten'
-            ],
-            'en': [
-                'Designated Contracting States'
-            ]
-        },
-        88: {
-            'de': 'Veröffentlichungstag A3',
-            'en': 'Date of publication A3'
-        },
-        'bulletin': {
-            'de': 'Patentblatt',
-            'en': 'Bulletin'
-        },
-        'description': {
-            'de': 'Beschreibung',
-            'en': 'Description'
-        }
-    }
-    kind = patent['attr']['kind']
-    lang = patent['attr']['lang']
-    SDOBI = patent['SDOBI']
-    B000 = SDOBI['B000']
-    eptags = B000['eptags']
-    B100 = SDOBI['B100']
-    B200 = SDOBI['B200']
-    B400 = SDOBI['B400']
-    B500 = SDOBI['B500']
-    B700 = SDOBI['B700']
-    B800 = SDOBI['B800']
-    md.append('# (11)(19) **%s %s %s**' % (B100['B190'], format(int(B100['B110']), '0>7,').replace(',', ' '), B100['B130']))
-    if 'B120' in B100:
-        if 'B121EP' in B100['B120']:
-            md.append('## (12) **%s**<br>%s' % (B100['B120']['B121'], B100['B120']['B121EP']))
-        else:
-            md.append('## (12) **%s**' % B100['B120']['B121'])
-    if kind in ['A3']:
-        md.append('## (88) %s:<br>**%s**' % (labels[88][lang], trans_4xx(B800['B880'])))
-    if kind in ['B1']:
-        md.append('## (45) %s:<br>**%s**' % (labels[45][lang][kind], trans_4xx(B400['B450'])))
-    if kind in ['A8', 'A9']:
-        B150 = B100['B150']
-        md.append('## (15) %s:<br>' % labels[15][lang][0])
-        B151 = B150['B151']
-        if B151[0] == 'W':
-            md.append('**%s %s (%s %s)**<br>' % (labels[15][lang][1], B151[1:], B151, B100['B132EP']))
-        else:
-            raise Exception('not W')
-        md.append('**%s**<br>' % labels[15][lang][2])
-        for B155 in B150['B155']:
-            if B155['B1551'] == lang:
-                if 'B153' in B150:
-                    md.append('**%s&nbsp;&nbsp;&nbsp;&nbsp;INID code(s)&nbsp;&nbsp;%s**' % (B155['B1552'], B150['B153']))
-                elif 'B154' in B150:
-                    for B154 in B150['B154']:
-                        if B154['B1541'] == lang:
-                            md.append('**%s**<br>**%s**' % (B155['B1552'], B154['B1542']))
-                else:
-                    md.append('**%s %s**' % (B155['B1552'], B151[1:]))
-        md.append('## (48) %s:<br>**%s**' % (labels[48][lang], trans_4xx(B400['B480'])))
-    if kind == 'B2':
-        md.append('## (45) %s<br>**%s**' % (labels[45][lang][kind][47], trans_4xx(B400['B477'])))
-        md.append('## (45) %s<br>**%s**' % (labels[45][lang][kind][45], trans_4xx(B400['B450'])))
-    if kind in ['B3']:
-        md.append('## (45) Date of publication and mention of the limitation decision:<br>')
-        for B4530EP in B400['B453EP']['B4530EP']:
-            md.append('1. **%s-%s %s**' % (B4530EP['kind'], B4530EP['attr']['limitation-sequence'], trans_4xx(B4530EP)))
-        md.append('## (45) Mention of the grant of the patent:<br>**%s**' % trans_4xx(B400['B450']))
-    if kind in ['A3', 'A8', 'A9']:
-        md.append('## (43) %s:<br>**%s**' % (labels[43][lang][kind], trans_4xx(B400['B430'])))
-    md.append('## (21) %s: **%s**' % (labels[21][lang], B200['B210']))
-    md.append('## (22) %s: **%s**' % (labels[22][lang], trans_date(B200['B220'])))
-    if 'B510' in B500:
-        B510 = B500['B510']
-        md.append('## (51) %s<sup>%s</sup>:' % (labels[51][lang], B510['B516']))
-        md.append('+ **%s**' % trans_ipc(B510['B511']))
-        if 'B512' in B510:
-            for B512 in B510['B512']:
-                md.append('+ %s' % trans_ipc(B512))
-        if 'B513' in B510:
-            for B513 in B510['B513']:
-                md.append('+ %s' % trans_ipc(B513))
-        if 'B514' in B510:
-            md.append('+ %s' % B510['B517EP'])
-    if 'B510EP' in B500:
-        md.append('## (51) %s:' % labels[51][lang])
-        for ipcr in B500['B510EP']:
-            md.append('+ ***%s***' % trans_ipcr(ipcr))
-    if 'B860' in B800:
-        md.append('## (86) International application number:<br>**%s**' % (trans_international_an(B800['B860'])))
-    if 'B870' in B800:
-        md.append('## (87) International publication number:<br>**%s**' % (trans_international_pn(B800['B870'])))
-    md.append('***')
-    md.append('## (54)')
-    for B540 in B500['B540']:
-        if B540['B541'] == patent['attr']['lang']:
-            md.append('+ **%s**' % B540['B542'])
-        else:
-            md.append('+ %s' % B540['B542'])
-    md.append('***')
-    md.append('## (84) %s:' % labels[84][lang][0])
-    md.append('**%s**' % ' '.join(B800['B840']))
-    if 'B844EP' in B800:
-        md.append('<br>Designated Extension States:<br>**%s**' % ' '.join([x['ctry'] for x in B800['B844EP']['B845EP']]))
-    if 'B848EP' in B800:
-        md.append('<br>Designated Validation States:<br>**%s**' % ' '.join([x['ctry'] for x in B800['B848EP']['B849EP']]))
-    if 'B300' in SDOBI:
-        B300 = SDOBI['B300']
-        md.append('## (30) %s:' % labels[30][lang])
-        for priority in B300['priority']:
-            md.append('+ **%s %s %s**' % (trans_date(priority['B320']), priority['B330']['ctry'], priority['B310']))
-    if 'B600' in SDOBI:
-        B600 = SDOBI['B600']
-        if 'B620' in B600:
-            B620 = B600['B620']['parent']
-            md.append('## (62) Document number(s) of the earlier application(s) in accordance with Art. 76 EPC:')
-            for pdoc_list in B620['pdoc']:
-                for pdoc in pdoc_list:
-                    md.append('+ **%s**' % trans_doc(pdoc))
-    if 'B270' in B200:
-        B270 = B200['B270']
-        md.append('## (27) Previously filed application:')
-        md.append('+ **%s %s %s**' % (trans_date(B270), B270['ctry'], B270['dnum']['anum']))
-    if kind in ['A1', 'B2', 'B3']:
-        md.append('## (43) %s: **%s**' % (labels[43][lang][kind], trans_4xx(B400['B430'])))
-    if 'B600' in SDOBI:
-        B600 = SDOBI['B600']
-        if 'B620EP' in B600:
-            B620EP = B600['B620EP']['parent']
-            md.append('## (60) %s:' % labels[60][lang])
-            for cdoc_list in B620EP['cdoc']:
-                for cdoc in cdoc_list:
-                    md.append('+ **%s**' % trans_doc(cdoc))
-    if 'B710' in B700:
-        md.append('## (71) Applicant:')
-        for applicant in B700['B710']:
-            if 'B716EP' in applicant:
-                md.append('+ **%s**<br>Designated Contracting States:<br>**%s**' % (trans_name(applicant, False), ' '.join(applicant['B716EP']['ctry'])))
-            else:
-                md.append('+ **%s**' % trans_name(applicant, False))
-    if 'B730' in B700:
-        md.append('## (73) %s:' % labels[73][lang])
-        for grantee in B700['B730']:
-            if 'B736EP' in grantee:
-                md.append('+ **%s**<br>Designated Contracting States:<br>**%s**' % (trans_name(grantee, False), ' '.join(grantee['B736EP']['ctry'])))
-            else:
-                md.append('+ **%s**' % trans_name(grantee, False))
-    md.append('## (72) %s:' % labels[72][lang])
-    for inventor in B700['B720']:
-        md.append('+ **%s**' % trans_name(inventor, False).strip())
-    if 'B740' in B700:
-        md.append('## (74) %s:' % labels[74][lang])
-        for agent in B700['B740']:
-            md.append('+ **%s**' % trans_name(agent, True))
-    if 'B560' in B500:
-        B560 = B500['B560']
-        md.append('## (56) %s:' % labels[56][lang])
-        if 'B561' in B560:
-            B561 = B560['B561']
-            for patent_citation in B561:
-                md.append('1. **%s**' % patent_citation['text'])
-        if 'B562' in B560:
-            B562 = B560['B562']
-            md.append('')
-            for patent_citation in B562:
-                md.append('+ **%s**' % patent_citation['text'])
-    if 'B050EP' in eptags or 'B053EP' in eptags or 'B070EP' in eptags:
-        md.append('<br><br><u>Remarks:</u>')
-        if 'B050EP' in eptags:
-            for B050EP in eptags['B050EP']:
-                md.append('+ %s' % B050EP['B052EP'])
-        if 'B053EP' in eptags:
-            for B053EP in eptags['B053EP']:
-                md.append('+ %s' % B053EP)
-        if 'B070EP' in eptags:
-            md.append('+ %s' % eptags['B070EP'])
-    md.append('***')
-    if 'abstract' in patent:
-        md.append('(57) ')
-        abstract = patent['abstract']
-        for abst in abstract:
-            for content in abst['content']:
-                md.append('%s<br>' % content['content'])
-        md.append('***')
-    if 'description' in patent:
-        md.append('**%s**<br>' % labels['description'][lang])
-        description = patent['description']
-        for content in description['content']:
-            if content['type'] == 'heading':
-                md.append('<br>%s<br>' % content['content'])
-            elif content['type'] == 'p':
-                md.append('**[%s]**&nbsp;&nbsp;%s<br>\n' % (content['attr']['num'], content['content']))
-        md.append('***')
-    if 'claims' in patent:
-        for claims in patent['claims']:
-            claims_title = 'Claims'
-            if claims['attr']['lang'] == 'de':
-                claims_title = 'Patentansprüche'
-            elif claims['attr']['lang'] == 'fr':
-                claims_title = 'Revendications'
-            md.append('### **%s**<br><br>' % claims_title)
-            for claim in claims['claim']:
-                md.append('1. %s<br><br>' % '<br>'.join(claim['claim_text']).replace('\n', '<br>'))
-        md.append('***')
-    if 'amended-claims' in patent:
-        amended_claims = patent['amended-claims']
-        for claims in amended_claims:
-            md.append('**%s**<br><br>' % claims['heading']['content'])
-            for claim in claims['claim']:
-                md.append('1. %s<br><br>' % '<br>'.join(claim['claim_text']).replace('\n', '<br>'))
-            if 'amended-claims-statement' in claims:
-                amended_claims_statement = claims['amended-claims-statement']
-                for item in amended_claims_statement:
-                    for claims_statement in item['claims-statement']:
-                        for content in claims_statement['content']:
-                            if content['type'] == 'heading':
-                                md.append('<br><br>**%s**<br><br>' % content['content'])
-                            elif content['type'] == 'p':
-                                md.append('%s<br>\n' % content['content'])
-        md.append('***')
-    if 'ep-reference-list' in patent:
-        ep_reference_list = patent['ep-reference-list']
-        for content in ep_reference_list['content']:
-            if content['type'] == 'heading':
-                md.append('<br><br>%s<br><br>' % content['content'])
-            elif content['type'] == 'p':
-                md.append('%s<br>' % content['content'])
-    return '\n'.join(md)
-
 if __name__ == '__main__':
-    with open('resources/EP78100093NWA1.xml', 'rb') as fin:
+    with open('resources/EP17785948NWA1.xml', 'rb') as fin:
         xml = fin.read()
-    patent = parse_v1_5(xml)
-    with open('data/EP78100093NWA1.md', 'w', encoding='utf-8') as fout:
+    patent = parse(xml)
+    pass
+    from generate_md import generate_md
+    with open('data/EP17785948NWA1.md', 'w', encoding='utf-8') as fout:
         fout.write(generate_md(patent))
+    # import json
     # print(json.dumps(patent, indent=4, ensure_ascii=False))
